@@ -1,0 +1,48 @@
+{
+  "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": {
+      "value": "dev"
+    },
+    "dnumberOfWorkers": {
+      "value": 1
+    },
+     "snumberOfWorkers": {
+      "value": 1
+    },
+    "dsku": {
+      "value": "S1"
+    },
+    "ssku": {
+      "value": "S1"
+    },
+    "sServicePlanWorkerSize": {
+      "value": "0"
+    },
+    "dServicePlanWorkerSize": {
+      "value": "0"
+    },
+    "sqlServerAdminLogin": {
+      "value": "admin"
+    },
+    "sqlServerAdminPassword": {
+      "value": "Password"
+    },
+    "sDBEdition": {
+      "value": "Basic"
+    },
+    "sDBPerformanceLevel": {
+      "value": "Basic"
+    },
+    "dDBEdition": {
+      "value": "Basic"
+    },
+    "dDBPerformanceLevel": {
+      "value": "Basic"
+    },
+     "localcache": {
+      "value": ""
+    }
+  }
+}

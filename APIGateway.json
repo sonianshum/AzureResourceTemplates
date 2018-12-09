@@ -1,0 +1,658 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "variables": {
+    "webAppApiVersion": "2015-08-01",
+    "configApiVersion": "2015-08-01",
+    "appInsightsApiVersion": "2015-05-01",
+    "serviceBusVersion": "2015-08-01",
+    "servicePlanName": "[concat('app', parameters('environmentName'), '-serviceplan')]",
+    "webSiteName": "[concat('app', parameters('environmentName'))]",
+    "appInsightName": "[concat(variables('webSiteName'), '-insights')]",
+    "cacheName": "[concat('app', parameters('environmentName'), '-cache')]",
+    "virtualNetworkName": "[concat('app', parameters('environmentName'), '-vNet')]",
+    "vnetId": "[resourceId('Microsoft.Network/virtualNetworks', variables('virtualNetworkName'))]",
+    "appGwFqdn": "[concat('app', parameters('environmentName'), '.azurewebsites.net')]",
+    "applicationGatewayName": "[concat('app', parameters('environmentName'), '-gw')]",
+    "applicationGatewayID": "[resourceId('Microsoft.Network/applicationGateways',variables('applicationGatewayName'))]",
+    "appGatewaySubnetRef": "[concat(variables('vnetId'), '/subnets/', variables('appGatewaySubnetName'))]",
+    "appGatewaySubnetName": "[concat('app', parameters('environmentName'), '-subnet')]",
+    "appGwPublicIpName": "[concat('app', parameters('environmentName'), '-publicIp')]",
+    "appGwSkuName": "[if(parameters('wafEnabled'), 'WAF_Medium', 'Standard_Small')]",
+    "appGwSkuTier": "[if(parameters('wafEnabled'), 'WAF', 'Standard')]",
+    "gwWAFConfiguration": {
+      "enabled": "[parameters('wafEnabled')]",
+      "firewallMode": "[parameters('wafMode')]",
+      "ruleSetType": "OWASP",
+      "ruleSetVersion": "3.0",
+      "disabledRuleGroups": []
+    },
+    "functionAppApiVersion": "2016-08-01",
+    "hostingPlanApiVersion": "2015-04-01",
+    "storageAccountApiVersion": "2016-12-01",
+    "storageAccountName": "[concat('app', parameters('environmentName'))]",
+    "storageAccountId": "[concat(resourceGroup().id,'/providers/','Microsoft.Storage/storageAccounts/', variables('storageAccountName'))]",
+    "hostingPlanName": "[concat('app', parameters('environmentName'), '-hosting')]",
+    "functionAppName": "[concat('app', parameters('environmentName'), '-function')]",
+    "serviceBusNamespaceName": "[concat('app', parameters('environmentName'), 'servicebus')]"
+  },
+  "parameters": {
+    "environmentName": {
+      "type": "string",
+      "metadata": {
+        "description": "The name of the environment to provision."
+      }
+    },
+    "releaseName": {
+      "type": "string",
+      "defaultValue": "client-release",
+      "metadata": {
+        "description": "The name of the release deployed."
+      }
+    },
+    "baseaddress": {
+      "type": "string",
+      "defaultValue": "[concat('https://site-', parameters('environmentName'), '.cloud.oneidentity.com/')]",
+      "metadata": {
+        "description": "The base address of the service."
+      }
+    },
+    "s_baseaddress": {
+      "type": "string",
+      "defaultValue": "[concat('https://base', parameters('environmentName'), '.cloud.oneidentity.com/')]",
+      "metadata": {
+        "description": "The base address of the to be used for authentication."
+      }
+    },
+    "abaseaddress": {
+      "type": "string",
+      "defaultValue": "[concat('https://as-', parameters('environmentName'), '.cloud.oneidentity.com/')]",
+      "metadata": {
+        "description": "The base address of the AS."
+      }
+    },
+    "storage_database_type": {
+      "type": "string",
+      "defaultValue": "Sql",
+      "metadata": {
+        "description": "The type of the data store (used to configure dependency injection)."
+      }
+    },
+    "sku": {
+      "type": "string",
+      "allowedValues": [
+        "S1",
+        "P1"
+      ],
+      "defaultValue": "S1",
+      "metadata": {
+        "description": "The pricing tier for the hosting plan."
+      }
+    },
+    "workerSize": {
+      "type": "string",
+      "allowedValues": [
+        "0",
+        "1",
+        "2"
+      ],
+      "defaultValue": "0",
+      "metadata": {
+        "description": "The instance size of the hosting plan (small, medium, or large)."
+      }
+    },
+    "numberOfWorkers": {
+      "type": "int",
+      "defaultValue": 1,
+      "metadata": {
+        "description": "The number of instances (VMs) the service plan should use."
+      }
+    },
+    "cacheSKUName": {
+      "type": "string",
+      "allowedValues": [
+        "Basic",
+        "Standard"
+      ],
+      "defaultValue": "Basic",
+      "metadata": {
+        "description": "The pricing tier of the new Azure Redis Cache."
+      }
+    },
+    "cacheSKUFamily": {
+      "type": "string",
+      "allowedValues": [
+        "C"
+      ],
+      "defaultValue": "C",
+      "metadata": {
+        "description": "The family for the sku."
+      }
+    },
+    "cacheSKUCapacity": {
+      "type": "int",
+      "allowedValues": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "defaultValue": 0,
+      "metadata": {
+        "description": "The size of the new Azure Redis Cache instance. "
+      }
+    },
+    "storage_cache_useRedis": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Enable use of Redis Cache. "
+      }
+    },
+    "deployGw": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Enable Gateway Deployment. "
+      }
+    },
+    "GwCapacity": {
+      "type": "int",
+      "defaultValue": 2,
+      "metadata": {
+        "description": "Number of instances"
+      }
+    },
+    "frontendCertData": {
+      "type": "string",
+      "metadata": {
+        "description": "Base-64 encoded form of the .pfx file. This is the cert terminating on the Application Gateway."
+      }
+    },
+    "frontendCertPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Password for .pfx certificate"
+      }
+    },
+    "backendPublicKeyData": {
+      "type": "string",
+      "defaultValue": "DefaultValue",
+      "metadata": {
+        "description": "Base-64 encoded form of the .cer file. This is the public key for the cert on the web app."
+      }
+    },
+    "wafMode": {
+      "type": "string",
+      "allowedValues": [
+        "Detection",
+        "Prevention"
+      ],
+      "defaultValue": "Detection",
+      "metadata": {
+        "description": "WAF Mode"
+      }
+    },
+    "wafEnabled": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Enable Gateway WAF. "
+      }
+    },
+    "GwAddressPrefix": {
+      "type": "string",
+      "defaultValue": "10.0.0.0/16",
+      "metadata": {
+        "description": "Address prefix for the Virtual Network"
+      }
+    },
+    "GwSubnetPrefix": {
+      "type": "string",
+      "defaultValue": "10.0.0.0/28",
+      "metadata": {
+        "description": "Subnet prefix"
+      }
+    },
+    "storageAccountType": {
+      "type": "string",
+      "defaultValue": "Standard_LRS",
+      "allowedValues": [
+        "Standard_LRS",
+        "Standard_GRS",
+        "Standard_RAGRS"
+      ],
+      "metadata": {
+        "description": "Storage Account type"
+      }
+    },
+    "serviceBusSku": {
+      "type": "string",
+      "allowedValues": [
+        "Standard",
+        "Premium"
+      ],
+      "defaultValue": "Standard",
+      "metadata": {
+        "description": "The messaging tier for service Bus namespace"
+      }
+    },
+    "serviceBusApiVersion": {
+      "type": "string",
+      "defaultValue": "2017-04-01",
+      "metadata": {
+        "description": "Service Bus ApiVersion used by the template"
+      }
+    },
+    "serviceBusQueueName": {
+      "type": "string",
+      "defaultValue": "usersqueue",
+      "metadata": {
+        "description": "Queue Name"
+      }
+    },
+    "appInsightsLocation": {
+      "type": "string",
+      "defaultValue": "West US 2",
+      "metadata": {
+        "description": "The location of Application Insights."
+      }
+    }
+  },
+  "resources": [
+    {
+      "name": "[variables('appInsightName')]",
+      "type": "Microsoft.Insights/components",
+      "location": "[parameters('appInsightsLocation')]",
+      "apiVersion": "[variables('appInsightsApiVersion')]",
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Web/sites', variables('webSiteName')))]": "Resource"
+      },
+      "kind": "web",
+      "properties": {
+        "ApplicationId": "[variables('appInsightName')]"
+      }
+    },
+    {
+      "name": "[variables('servicePlanName')]",
+      "type": "Microsoft.Web/serverfarms",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('webAppApiVersion')]",
+      "sku": {
+        "name": "[parameters('sku')]"
+      },
+      "properties": {
+        "workerSize": "[parameters('workerSize')]",
+        "numberOfWorkers": "[parameters('numberOfWorkers')]"
+      }
+    },
+    {
+      "name": "[variables('webSiteName')]",
+      "type": "Microsoft.Web/sites",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('webAppApiVersion')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/serverfarms', variables('servicePlanName'))]",
+        "[resourceId('Microsoft.Cache/Redis', variables('cacheName'))]"
+      ],
+      "properties": {
+        "name": "[variables('webSiteName')]",
+        "serverFarmId": "[variables('servicePlanName')]"
+      },
+      "resources": [
+        {
+          "name": "[concat(variables('webSiteName'), '/hotswap')]",
+          "type": "Microsoft.Web/sites/slots",
+          "apiVersion": "[variables('webAppApiVersion')]",
+          "dependsOn": [
+            "[resourceId('Microsoft.Web/Sites/', variables('webSiteName'))]"
+          ],
+          "location": "[resourceGroup().location]",
+          "properties": {
+            "clientAffinityEnabled": false,
+            "httpsOnly": true,
+            "serverFarmId": "[variables('servicePlanName')]"
+          },
+          "resources": [
+            {
+              "apiVersion": "[variables('configApiVersion')]",
+              "name": "appsettings",
+              "type": "config",
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/Sites/slots', variables('webSiteName'), 'hotswap')]",
+                "[resourceId('Microsoft.Cache/Redis', variables('cacheName'))]"
+              ],
+              "properties": {
+                "Credentials:S:BaseAddress": "[parameters('s_baseaddress')]",
+                "Credentials:App:BaseAddress": "[parameters('baseaddress')]",
+                "Credentials:AS:BaseAddress": "[parameters('as_baseaddress')]",
+                "Storage:DatabaseType": "[parameters('storage_database_type')]",
+                "Storage:Cache:UseRedis": "[parameters('storage_cache_useRedis')]",
+                "RELEASE_NAME": "[parameters('releaseName')]",
+                "ApplicationInsights:InstrumentationKey": "[reference(concat('Microsoft.Insights/components/', variables('appInsightName')), variables('appInsightsApiVersion')).InstrumentationKey]",
+                "WEBSITE_LOCAL_CACHE_OPTION": "Always",
+                "WEBSITE_LOCAL_CACHE_SIZEINMB": "300"
+              }
+            },
+            {
+              "apiVersion": "[variables('configApiVersion')]",
+              "name": "web",
+              "type": "config",
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/Sites/slots', variables('webSiteName'), 'hotswap')]"
+              ],
+              "properties": {
+                "alwaysOn": true
+              }
+            }
+          ]
+        },
+        {
+          "apiVersion": "[variables('configApiVersion')]",
+          "name": "web",
+          "type": "config",
+          "dependsOn": [
+            "[resourceId('Microsoft.Web/Sites', variables('webSiteName'))]"
+          ],
+          "properties": {
+            "alwaysOn": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "[variables('cacheName')]",
+      "type": "Microsoft.Cache/Redis",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2015-08-01",
+      "dependsOn": [],
+      "tags": {
+        "displayName": "cache"
+      },
+      "properties": {
+        "sku": {
+          "name": "[parameters('cacheSKUName')]",
+          "family": "[parameters('cacheSKUFamily')]",
+          "capacity": "[parameters('cacheSKUCapacity')]"
+        }
+      }
+    },
+    {
+      "condition": "[parameters('deployGw')]",
+      "type": "Microsoft.Network/publicIPAddresses",
+      "name": "[variables('appGwPublicIpName')]",
+      "apiVersion": "2017-10-01",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "publicIPAllocationMethod": "Dynamic"
+      }
+    },
+    {
+      "condition": "[parameters('deployGw')]",
+      "type": "Microsoft.Network/virtualNetworks",
+      "name": "[variables('virtualNetworkName')]",
+      "apiVersion": "2017-10-01",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[parameters('GwAddressPrefix')]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[variables('appGatewaySubnetName')]",
+            "properties": {
+              "addressPrefix": "[parameters('GwSubnetPrefix')]"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "condition": "[parameters('deployGw')]",
+      "type": "Microsoft.Network/applicationGateways",
+      "name": "[variables('applicationGatewayName')]",
+      "apiVersion": "2017-10-01",
+      "location": "[resourceGroup().location]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('virtualNetworkName'))]",
+        "[resourceId('Microsoft.Network/publicIPAddresses', variables('appGwPublicIpName'))]"
+      ],
+      "properties": {
+        "sku": {
+          "name": "[variables('appGwSkuName')]",
+          "tier": "[variables('appGwSkuTier')]",
+          "capacity": "[parameters('GwCapacity')]"
+        },
+        "gatewayIPConfigurations": [
+          {
+            "name": "appGatewayIpConfig",
+            "properties": {
+              "subnet": {
+                "id": "[variables('appGatewaySubnetRef')]"
+              }
+            }
+          }
+        ],
+        "sslCertificates": [
+          {
+            "name": "appGatewayFrontEndSslCert",
+            "properties": {
+              "data": "[parameters('frontendCertData')]",
+              "password": "[parameters('frontendCertPassword')]"
+            }
+          }
+        ],
+        "authenticationCertificates": [
+          {
+            "name": "appGatewayBackendCert",
+            "properties": {
+              "data": "[parameters('backendPublicKeyData')]"
+            }
+          }
+        ],
+        "frontendIPConfigurations": [
+          {
+            "name": "appGatewayFrontendIP",
+            "properties": {
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses',variables('appGwPublicIpName'))]"
+              }
+            }
+          }
+        ],
+        "frontendPorts": [
+          {
+            "name": "appGatewayFrontendPort",
+            "properties": {
+              "port": 443
+            }
+          }
+        ],
+        "backendAddressPools": [
+          {
+            "name": "appGatewayBackendPool",
+            "properties": {
+              "backendAddresses": [
+                {
+                  "fqdn": "[variables('appGwFqdn')]"
+                }
+              ]
+            }
+          }
+        ],
+        "backendHttpSettingsCollection": [
+          {
+            "name": "appGatewayBackendHttpsSettings",
+            "properties": {
+              "port": 443,
+              "protocol": "Https",
+              "cookieBasedAffinity": "Disabled",
+              "pickHostNameFromBackendAddress": true,
+              "probe": {
+                "id": "[concat(variables('applicationGatewayID'), '/probes/appGatewayHttpsProbe')]"
+              },
+              "AuthenticationCertificates": [
+                {
+                  "Id": "[concat(variables('applicationGatewayID'), '/authenticationCertificates/appGatewayBackendCert')]"
+                }
+              ]
+            }
+          }
+        ],
+        "httpListeners": [
+          {
+            "name": "appGatewayHttpsListener",
+            "properties": {
+              "frontendIPConfiguration": {
+                "id": "[concat(variables('applicationGatewayID'), '/frontendIPConfigurations/appGatewayFrontendIP')]"
+              },
+              "frontendPort": {
+                "id": "[concat(variables('applicationGatewayID'), '/frontendPorts/appGatewayFrontendPort')]"
+              },
+              "protocol": "Https",
+              "sslCertificate": {
+                "Id": "[concat(variables('applicationGatewayID'), '/sslCertificates/appGatewayFrontEndSslCert')]"
+              }
+            }
+          }
+        ],
+        "requestRoutingRules": [
+          {
+            "name": "HTTPSRule",
+            "properties": {
+              "ruleType": "Basic",
+              "httpListener": {
+                "id": "[concat(variables('applicationGatewayID'), '/httpListeners/appGatewayHttpsListener')]"
+              },
+              "backendAddressPool": {
+                "id": "[concat(variables('applicationGatewayID'), '/backendAddressPools/appGatewayBackendPool')]"
+              },
+              "backendHttpSettings": {
+                "id": "[concat(variables('applicationGatewayID'), '/backendHttpSettingsCollection/appGatewayBackendHttpsSettings')]"
+              }
+            }
+          }
+        ],
+        "probes": [
+          {
+            "name": "appGatewayHttpsProbe",
+            "properties": {
+              "protocol": "Https",
+              "path": "/heartbeat",
+              "interval": 30,
+              "timeout": 120,
+              "unhealthyThreshold": 3,
+              "pickHostNameFromBackendHttpSettings": true,
+              "minServers": 0,
+              "match": {
+                "statusCodes": [
+                  "200-399"
+                ]
+              }
+            }
+          }
+        ],
+        "webApplicationFirewallConfiguration": "[if(parameters('wafEnabled'), variables('gwWAFConfiguration'), json('null'))]"
+      }
+    },
+    {
+      "name": "[variables('storageAccountName')]",
+      "type": "Microsoft.Storage/storageAccounts",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('storageAccountApiVersion')]",
+      "kind": "Storage",
+      "sku": {
+        "name": "[parameters('storageAccountType')]"
+      }
+    },
+    {
+      "name": "[variables('hostingPlanName')]",
+      "type": "Microsoft.Web/serverfarms",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('hostingPlanApiVersion')]",
+      "properties": {
+        "name": "[variables('hostingPlanName')]",
+        "computeMode": "Dynamic",
+        "sku": "Dynamic"
+      }
+    },
+    {
+      "apiVersion": "[parameters('serviceBusApiVersion')]",
+      "name": "[variables('serviceBusNamespaceName')]",
+      "type": "Microsoft.ServiceBus/Namespaces",
+      "location": "[resourceGroup().location]",
+      "kind": "Messaging",
+      "sku": {
+        "name": "Standard"
+      },
+      "resources": [
+        {
+          "apiVersion": "[parameters('serviceBusApiVersion')]",
+          "name": "[parameters('serviceBusQueueName')]",
+          "type": "Queues",
+          "dependsOn": [
+            "[concat('Microsoft.ServiceBus/namespaces/', variables('serviceBusNamespaceName'))]"
+          ],
+          "properties": {
+            "path": "[parameters('serviceBusQueueName')]"
+          }
+        }
+      ]
+    },
+    {
+      "name": "[variables('functionAppName')]",
+      "type": "Microsoft.Web/sites",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('functionAppApiVersion')]",
+      "kind": "functionapp",
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/serverfarms', variables('hostingPlanName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ],
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('hostingPlanName'))]",
+        "siteConfig": {
+          "appSettings": [
+            {
+              "name": "AzureWebJobsDashboard",
+              "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', variables('storageAccountName'), ';AccountKey=', listKeys(variables('storageAccountid'), variables('storageAccountApiVersion')).keys[0].value)]"
+            },
+            {
+              "name": "AzureWebJobsStorage",
+              "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', variables('storageAccountName'), ';AccountKey=', listKeys(variables('storageAccountid'), variables('storageAccountApiVersion')).keys[0].value)]"
+            },
+            {
+              "name": "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING",
+              "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', variables('storageAccountName'), ';AccountKey=', listKeys(variables('storageAccountid'), variables('storageAccountApiVersion')).keys[0].value)]"
+            },
+            {
+              "name": "WEBSITE_CONTENTSHARE",
+              "value": "[toLower(variables('functionAppName'))]"
+            },
+            {
+              "name": "FUNCTIONS_EXTENSION_VERSION",
+              "value": "beta"
+            },
+            {
+              "name": "WEBSITE_NODE_DEFAULT_VERSION",
+              "value": "6.5.0"
+            },
+            {
+              "name": "APPINSIGHTS_INSTRUMENTATIONKEY",
+              "value": "[reference(resourceId('Microsoft.Insights/components/', variables('appInsightName')), variables('appInsightsApiVersion')).InstrumentationKey]"
+            },
+            {
+              "name": "ServiceBusConnectionString",
+              "value": ""
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

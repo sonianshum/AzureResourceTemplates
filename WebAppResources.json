@@ -1,0 +1,451 @@
+{
+  "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+
+  "variables": {
+    "webAppApiVersion": "2015-08-01",
+    "configApiVersion": "2015-08-01",
+    "appInsightsApiVersion": "2014-04-01",
+    "sqlServerSize": "1073741824",
+	  "subscriptionid": "[subscription().subscriptionId]",
+    "sqlServerName": "[concat('sql-', parameters('environmentName'))]",
+    "sqlServerWebApiVersion": "2014-04-01",
+
+    "sAppInsightsApiVersion": "2014-04-01",
+    "sServicePlanName": "[concat('appservice-', parameters('environmentName'))]",
+    "sSiteName": "[concat('site-', parameters('environmentName'))]",
+    "sAppInsightsName": "[concat('site-', parameters('environmentName'), '-appinsights')]",
+
+    "dAppInsightsApiVersion": "2014-04-01",
+    "dServicePlanName": "[concat('appservice1-', parameters('environmentName'))]",
+    "dSiteName": "[concat('site1', parameters('environmentName'))]",
+    "dAppInsightsName": "[concat('site1', parameters('environmentName'), '-appinsights')]",
+
+    "dWebAppApiVersion": "2014-04-01"
+  },
+
+  "parameters": {
+    "environmentName": {
+      "type": "string",
+      "metadata": {
+        "description": "The name of the environment to provision."
+      }
+    },
+    "ssku": {
+      "type": "string",
+      "allowedValues": [
+        "S1",
+        "P1"
+      ],
+      "defaultValue": "S1",
+      "metadata": {
+        "description": "The pricing tier for the hosting plan."
+      }
+    },
+    "localcache": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Local cache Value."
+      }
+    },
+    "smcServicePlanWorkerSize": {
+      "type": "string",
+      "allowedValues": [
+        "0",
+        "1",
+        "2"
+      ],
+      "defaultValue": "0",
+      "metadata": {
+        "description": "The instance size of the SMC App Service plan (small, medium, or large)."
+      }
+    },
+    "snumberOfWorkers": {
+      "type": "int",
+      "defaultValue": 1,
+      "metadata": {
+        "description": "The number of instances (VMs) the service plan should use."
+      }
+    },
+    "sqlServerAdminLogin": {
+      "type": "string",
+      "minLength": 1,
+      "metadata": {
+        "description": "The name of the SQL server administrator account."
+      }
+    },
+    "sqlServerAdminPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "The SQL server administrator password."
+      }
+    },
+    "sDBEdition": {
+      "type": "string",
+      "defaultValue": "Standard",
+      "allowedValues": [
+        "Basic",
+        "Standard",
+        "Premium"
+      ]
+    },
+    "sDBPerformanceLevel": {
+      "type": "string",
+      "defaultValue": "S0",
+      "allowedValues": [
+        "Basic",
+        "S0",
+        "S1",
+        "S2",
+        "P1",
+        "P2",
+        "P3"
+      ],
+      "metadata": {
+        "description": "Describes the performance level for Edition"
+      }
+    },
+    "DBCollation": {
+      "type": "string",
+      "minLength": 1,
+      "defaultValue": "SQL_Latin1_General_CP1_CI_AS"
+    },
+    "dDBEdition": {
+      "type": "string",
+      "defaultValue": "Standard",
+      "allowedValues": [
+        "Basic",
+        "Standard",
+        "Premium"
+      ]
+    },
+    "dDBPerformanceLevel": {
+      "type": "string",
+      "defaultValue": "S0",
+      "allowedValues": [
+        "Basic",
+        "S0",
+        "S1",
+        "S2",
+        "P1",
+        "P2",
+        "P3"
+      ],
+      "metadata": {
+        "description": "Describes the performance level for Edition"
+      }
+    },
+    "dDBCollation": {
+      "type": "string",
+      "minLength": 1,
+      "defaultValue": "SQL_Latin1_General_CP1_CI_AS"
+    },
+    "dku": {
+      "type": "string",
+      "allowedValues": [
+        "S1",
+        "S2",
+        "P1"
+      ],
+      "defaultValue": "S1",
+      "metadata": {
+        "description": "The pricing tier for the hosting plan."
+      }
+    },
+    "dnumberOfWorkers": {
+      "type": "int",
+      "defaultValue": 1,
+      "metadata": {
+        "description": "The number of instances (VMs) the service plan should use."
+      }
+    },
+    "dServicePlanWorkerSize": {
+      "type": "string",
+      "allowedValues": [
+        "0",
+        "1",
+        "2"
+      ],
+      "defaultValue": "0",
+      "metadata": {
+        "description": "The instance size of the Dashboard App Service plan (small, medium, or large)."
+      }
+    }
+  },
+  "resources": [
+    /*SMC Configs*/
+    {
+      "name": "[variables('sServicePlanName')]",
+      "type": "Microsoft.Web/serverfarms",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('webAppApiVersion')]",
+      "tags": {
+        "displayName": "Service Plan"
+      },
+      "sku": {
+        "name": "[parameters('ssku')]"
+      },
+      "properties": {
+        "name": "[variables('sServicePlanName')]",
+        "workerSize": "[parameters('sServicePlanWorkerSize')]",
+        "numberOfWorkers": "[parameters('snumberOfWorkers')]"
+      }
+    },
+  
+    {
+      "name": "[variables('sAppInsightsName')]",
+      "type": "Microsoft.Insights/components",
+      "location": "South Central US",
+      "apiVersion": "[variables('appInsightsApiVersion')]",
+      "tags": {
+        "displayName": "App Insights",
+		"[concat('hidden-link:/subscriptions/',variables('subscriptionId'),'/resourceGroups/d-',parameters('environmentName'),'/providers/Microsoft.Web/sites/d-',parameters('environmentName'))]": "Resource"
+      },
+      "properties": {
+        "applicationId": "[variables('sAppInsightsName')]"
+      },
+      "kind": "web"
+    },
+
+    {
+      "name": "[variables('sSiteName')]",
+      "type": "Microsoft.Web/sites",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('webAppApiVersion')]",
+
+      "dependsOn": [
+        "[concat('Microsoft.Web/serverfarms/', variables('sServicePlanName'))]",
+        "[concat('Microsoft.Insights/components/', variables('sAppInsightsName'))]"
+      ],
+      "tags": {
+        "[concat('hidden-related:', resourceGroup().id, '/providers/Microsoft.Web/serverfarms/', variables('sServicePlanName'))]": "Resource",
+        "displayName": "Web App"
+      },
+      "properties": {
+        "name": "[variables('sSiteName')]",
+        "serverFarmId": "[variables('sServicePlanName')]",
+		"httpsOnly":"true"
+      },
+
+      "resources": [
+        {
+          "name": "appsettings",
+          "type": "config",
+          "apiVersion": "[variables('configApiVersion')]",
+          "dependsOn": [
+            "[concat('Microsoft.Web/sites/', variables('sSiteName'))]"
+          ],
+          "tags": {
+            "displayName": "App Settings"
+          },
+          "properties": {
+            "Hosting:Environment": "[parameters('environmentName')]",
+            "configOptions:publicUiUrl": "[concat('https://s-', parameters('environmentName'), '.azurewebsites.net/')]",
+            "APPINSIGHTS_INSTRUMENTATIONKEY": "[reference(concat('microsoft.insights/components/', variables('sAppInsightsName'))).InstrumentationKey]",   
+            "WEBSITE_LOCAL_CACHE_OPTION": "[parameters('localcache')]",
+            "WEBSITE_LOCAL_CACHE_SIZEINMB": "300"         
+          }
+        },
+        {
+          "name": "web",
+          "type": "config",
+          "apiVersion": "[variables('configApiVersion')]",
+          "dependsOn": [
+            "[concat('Microsoft.Web/sites/', variables('sSiteName'))]"
+          ],
+          "tags": {
+            "displayName": "Site Settings"
+          },
+          "properties": {
+            "use32BitWorkerProcess": "false",
+            "alwaysOn": "true"
+          }
+        },
+        {
+          "name": "[concat(variables('sSiteName'), '/staging')]",
+          "type": "Microsoft.Web/sites/slots",
+          "apiVersion": "[variables('webAppApiVersion')]",
+          "location": "[resourceGroup().location]",
+          "dependsOn": [
+            "[concat('Microsoft.Web/Sites/', variables('sSiteName'))]",
+            "[concat('Microsoft.Web/sites/', variables('sSiteName'), '/config/web/')]"
+          ],
+          "tags": {
+            "displayName": "Staging Slot"
+          },
+          "properties": "[reference(concat('Microsoft.Web/Sites/', variables('sSiteName'), '/config/web'))]"
+        }
+      ]
+    },
+
+    /*Dashboard Config*/
+    {
+      "name": "[variables('dServicePlanName')]",
+      "type": "Microsoft.Web/serverfarms",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('webAppApiVersion')]",
+      "tags": {
+        "displayName": "Service Plan"
+      },
+      "sku": {
+        "name": "[parameters('dsku')]"
+      },
+      "properties": {
+        "name": "[variables('dServicePlanName')]",
+        "workerSize": "[parameters('dServicePlanWorkerSize')]",
+        "numberOfWorkers": "[parameters('dnumberOfWorkers')]"
+      }
+    },
+    {
+      "name": "[variables('dAppInsightsName')]",
+      "type": "Microsoft.Insights/components",
+      "location": "South Central US",
+      "apiVersion": "[variables('dWebAppApiVersion')]",
+      "tags": {
+        "displayName": "App Insights",
+		"[concat('hidden-link:/subscriptions/',variables('subscriptionId'),'/resourceGroups/d-',parameters('environmentName'),'/providers/Microsoft.Web/sites/d-',parameters('environmentName'))]": "Resource"
+      },
+      "properties": {
+        "applicationId": "[variables('dAppInsightsName')]"
+      },
+      "kind": "web"
+    },
+    {
+      "name": "[variables('dSiteName')]",
+      "type": "Microsoft.Web/sites",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('webAppApiVersion')]",
+
+      "dependsOn": [
+        "[concat('Microsoft.Web/serverfarms/', variables('dServicePlanName'))]",
+        "[concat('Microsoft.Insights/components/', variables('dAppInsightsName'))]"
+      ],
+      "tags": {
+        "[concat('hidden-related:', resourceGroup().id, '/providers/Microsoft.Web/serverfarms/', variables('dServicePlanName'))]": "Resource",
+        "displayName": "Web App"
+      },
+      "properties": {
+        "name": "[variables('dSiteName')]",
+        "serverFarmId": "[variables('dServicePlanName')]",
+		"httpsOnly":"true"
+      },
+
+      "resources": [
+        {
+          "name": "appsettings",
+          "type": "config",
+          "apiVersion": "[variables('configApiVersion')]",
+          "dependsOn": [
+            "[concat('Microsoft.Web/sites/', variables('dSiteName'))]"
+          ],
+          "tags": {
+            "displayName": "App Settings"
+          },
+          "properties": {
+            "Hosting:Environment": "[parameters('environmentName')]",
+            "configOptions:publicUiUrl": "[concat('https://d-', parameters('environmentName'), '.azurewebsites.net/')]",
+            "APPINSIGHTS_INSTRUMENTATIONKEY": "[reference(concat('microsoft.insights/components/', variables('dAppInsightsName'))).InstrumentationKey]",
+            "WEBSITE_LOCAL_CACHE_OPTION": "[parameters('localcache')]",
+            "WEBSITE_LOCAL_CACHE_SIZEINMB": "300"
+          }
+        },
+        {
+          "name": "web",
+          "type": "config",
+          "apiVersion": "[variables('configApiVersion')]",
+          "dependsOn": [
+            "[concat('Microsoft.Web/sites/', variables('dSiteName'))]"
+          ],
+          "tags": {
+            "displayName": "Site Settings"
+          },
+          "properties": {
+            "use32BitWorkerProcess": "false",
+            "alwaysOn": "true"
+          }
+        },
+        {
+          "name": "[concat(variables('dSiteName'), '/staging')]",
+          "type": "Microsoft.Web/sites/slots",
+          "apiVersion": "[variables('webAppApiVersion')]",
+          "location": "[resourceGroup().location]",
+          "dependsOn": [
+            "[concat('Microsoft.Web/Sites/', variables('dSiteName'))]",
+            "[concat('Microsoft.Web/sites/', variables('dSiteName'), '/config/web/')]"
+          ],
+          "tags": {
+            "displayName": "Staging Slot"
+          },
+          "properties": "[reference(concat('Microsoft.Web/Sites/', variables('dSiteName'), '/config/web'))]"
+        }
+      ]
+    },
+    {
+      "name": "[variables('sqlServerName')]",
+      "type": "Microsoft.Sql/servers",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('sqlServerWebApiVersion')]",
+      "tags": {
+        "displayName": "SQL Server"
+      },
+      "properties": {
+        "administratorLogin": "[parameters('sqlServerAdminLogin')]",
+        "administratorLoginPassword": "[parameters('sqlServerAdminPassword')]",
+        "version": "12.0"
+      },
+      "resources": [
+        {
+          "name": "AllowAllWindowsAzureIps",
+          "type": "firewallrules",
+          "location": "[resourceGroup().location]",
+          "apiVersion": "[variables('sqlServerWebApiVersion')]",
+
+          "dependsOn": [
+            "[concat('Microsoft.Sql/servers/', variables('sqlServerName'))]"
+          ],
+          "properties": {
+            "startIpAddress": "0.0.0.0",
+            "endIpAddress": "0.0.0.0"
+          }
+        },
+        {
+          "name": "Subscriptions",
+          "type": "databases",
+          "location": "[resourceGroup().location]",
+          "apiVersion": "[variables('sqlServerWebApiVersion')]",
+          "dependsOn": [
+            "[concat('Microsoft.Sql/servers/', variables('sqlServerName'))]"
+          ],
+          "tags": {
+            "displayName": "Subscriptions Database"
+          },
+          "properties": {
+            "collation": "[parameters('subscriptionsDBCollation')]",
+            "edition": "[parameters('subscriptionsDBEdition')]",
+            "maxSizeBytes": "[variables('sqlServerSize')]",
+            "requestedServiceObjectiveName": "[parameters('subscriptionsDBPerformanceLevel')]"
+          }
+        },
+        {
+          "name": "Dashboards",
+          "type": "databases",
+          "location": "[resourceGroup().location]",
+          "apiVersion": "[variables('sqlServerWebApiVersion')]",
+          "dependsOn": [
+            "[concat('Microsoft.Sql/servers/', variables('sqlServerName'))]"
+          ],
+          "tags": {
+            "displayName": "Database"
+          },
+          "properties": {
+            "collation": "[parameters('dDBCollation')]",
+            "edition": "[parameters('dDBEdition')]",
+            "maxSizeBytes": "[variables('sqlServerSize')]",
+            "requestedServiceObjectiveName": "[parameters('dDBPerformanceLevel')]"
+          }
+        }
+      ]
+    }
+  ]
+}

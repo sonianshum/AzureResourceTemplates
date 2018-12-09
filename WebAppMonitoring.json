@@ -1,0 +1,1363 @@
+{
+  "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+
+  "variables": {
+    "sqlServerName": "[concat('sql-', parameters('environmentName'))]",
+
+    "sAppInsightsApiVersion": "2014-04-01",
+    "sServicePlanName": "[concat('s-', parameters('environmentName'))]",
+    "sSiteName": "[concat('s-', parameters('environmentName'))]",
+    "sAppInsightsName": "[concat('s-', parameters('environmentName'), '-appinsights')]",
+    "sAutoScale": "[concat('s-', parameters('environmentName'), '-autoscale')]",
+    "sWebTestName": "[concat('s-', parameters('environmentName'),'-availability')]",
+    "sWebTestAvailabilityAlert": "[concat('s-',parameters('environmentName'),'-unavailability')]",
+
+    "dAppInsightsApiVersion": "2014-04-01",
+    "dServicePlanName": "[concat('d-', parameters('environmentName'))]",
+    "dSiteName": "[concat('d-', parameters('environmentName'))]",
+    "dAppInsightsName": "[concat('d-', parameters('environmentName'), '-appinsights')]",
+    "dAutoScale": "[concat('d-', parameters('environmentName'), '-autoscale')]",
+    "dWebTestName": "[concat('d-',parameters('environmentName'),'-availability')]",
+    "dWebTestAvailabilityAlert": "[concat('d-',parameters('environmentName'),'-unavailability')]",
+
+    "webhookURI": "[concat('https://api.opsgenie.com/v1/json/azure?apiKey=',parameters('webhookApiKey'))]"
+  },
+  "parameters": {
+    "environmentName": {
+      "type": "string",
+      "metadata": {
+        "description": "The name of the environment to provision."
+      }
+    },
+    "alertEmailAddresses": {
+      "type": "array",
+      "metadata": {
+        "description": "The email addresses to send alerts to."
+      }
+    },
+    "sHostName": {
+      "type": "string",
+      "metadata": {
+        "description": "The host name of the service."
+      }
+    },
+    "dHostName": {
+      "type": "string",
+      "metadata": {
+        "description": "The host name of the service."
+      }
+    },
+    "dMinInstanceCount": {
+      "type": "int",
+      "defaultValue": 1,
+      "metadata": {
+        "description": "Minimum instance count for d auto scale settings."
+      }
+    },
+    "dMaxInstanceCount": {
+      "type": "int",
+      "defaultValue": 10,
+      "metadata": {
+        "description": "Maximum instance count for d auto scale settings."
+      }
+    },
+    "sMinInstanceCount": {
+      "type": "int",
+      "defaultValue": 1,
+      "metadata": {
+        "description": "Minimum instance count for s auto scale settings."
+      }
+    },
+    "sMaxInstanceCount": {
+      "type": "int",
+      "defaultValue": 10,
+      "metadata": {
+        "description": "Maximum instance count for s auto scale settings."
+      }
+    },
+    "webhookApiKey": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Webhook Api Key"
+      }
+    },
+    "webhookURI": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Webhook URI"
+      }
+    },
+    "availabilityThreshold": {
+      "type": "int",
+      "defaultValue": 10,
+      "metadata": {
+        "description": "Threshold value for slow availibility Tests."
+      }
+    }
+  },
+
+  "resources": [
+    {
+      /*s Monitors*/
+
+      /*Farm Level*/
+
+      "name": "[concat(variables('sServicePlanName'), '-HighCPU')]",
+      "type": "Microsoft.Insights/alertrules",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('sAppInsightsApiVersion')]",
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Web/serverFarms/', variables('sServicePlanName')))]": "Resource",
+        "displayName": "Alert - High CPU (s)"
+      },
+
+      "properties": {
+        "name": "[concat(variables('sServicePlanName'),'-HighCPU')]",
+        "description": "[concat(variables('sServicePlanName'),'-High CPU Utilization')]",
+        "isEnabled": true,
+        "condition": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+          "dataSource": {
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[resourceId('Microsoft.Web/serverfarms', variables('sServicePlanName'))]",
+            "metricName": "CpuPercentage"
+          },
+          "operator": "GreaterThan",
+          "threshold": 90,
+          "windowSize": "PT15M"
+        },
+        "action": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        },
+        "actions": [
+          {
+            "$type": "Microsoft.WindowsAzure.Management.Monitoring.Alerts.Models.RuleWebhookAction, Microsoft.WindowsAzure.Management.Mon.Client",
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleWebhookAction",
+            "serviceUri": "[variables('webhookURI')]",
+            "properties": {
+              "$type": "Microsoft.WindowsAzure.Management.Common.Storage.CasePreservedDictionary`1[[System.String, mscorlib]], Microsoft.WindowsAzure.Management.Common.Storage"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "[concat(variables('sServicePlanName'),'-HighMemory')]",
+      "type": "Microsoft.Insights/alertRules",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('sAppInsightsApiVersion')]",
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Web/serverFarms/', variables('sServicePlanName')))]": "Resource",
+        "displayName": "Alert - Memory Usage (s)"
+      },
+      "properties": {
+        "name": "[concat(variables('sServicePlanName'),'-HighMemory')]",
+        "description": "[concat(variables('sServicePlanName'),'High Memeory Utilization')]",
+        "isEnabled": true,
+        "condition": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+          "dataSource": {
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[resourceId('Microsoft.Web/serverfarms', variables('sServicePlanName'))]",
+            "metricName": "MemoryPercentage"
+          },
+          "threshold": 90,
+          "windowSize": "PT5M",
+          "timeAggregation": "Average"
+        },
+        "action": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        },
+        "provisioningState": "Succeeded",
+        "actions": [
+          {
+            "$type": "Microsoft.WindowsAzure.Management.Monitoring.Alerts.Models.RuleWebhookAction, Microsoft.WindowsAzure.Management.Mon.Client",
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleWebhookAction",
+            "serviceUri": "[variables('webhookURI')]",
+            "properties": {
+              "$type": "Microsoft.WindowsAzure.Management.Common.Storage.CasePreservedDictionary`1[[System.String, mscorlib]], Microsoft.WindowsAzure.Management.Common.Storage"
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/',variables('sServicePlanName'), '-HighCPU')]"
+      ]
+    },
+    {
+      "name": "[concat(variables('sServicePlanName'), '-LongHttpQueue')]",
+      "type": "Microsoft.Insights/alertrules",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('sAppInsightsApiVersion')]",
+
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Web/serverFarms/', variables('sServicePlanName')))]": "Resource",
+        "displayName": "Alert - Long HTTP Queue (s)"
+      },
+
+      "properties": {
+        "name": "[concat( variables('sServicePlanName'), '-LongHttpQueue')]",
+        "description": "[concat(variables('sServicePlanName'), '-Has a large number of pending requests.')]",
+        "isEnabled": true,
+        "condition": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+          "dataSource": {
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[resourceId('Microsoft.Web/serverfarms', variables('sServicePlanName'))]",
+            "metricName": "HttpQueueLength"
+          },
+          "operator": "GreaterThan",
+          "threshold": 100,
+          "windowSize": "PT5M"
+        },
+        "action": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        }
+        
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/',variables('sServicePlanName'), '-HighMemory')]"
+      ]
+    },
+    {
+      "type": "microsoft.insights/alertrules",
+      "name": "[concat(variables('sSiteName'), '-ServerExceptions')]",
+      "apiVersion": "[variables('sAppInsightsApiVersion')]",
+      "location": "South Central US",
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Insights/components/', variables('sAppInsightsName')))]": "Resource"
+      },
+      "properties": {
+        "name": "[concat(variables('sSiteName'), '-ServerExceptions')]",
+        "description": "[concat(variables('sSiteName'), '-Server Exceptions')]",
+        "isEnabled": true,
+        "condition": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+          "dataSource": {
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[resourceId('microsoft.insights/components', variables('sAppInsightsName'))]",
+            "metricName": "basicExceptionServer.count"
+          },
+          "operator": "GreaterThanOrEqual",
+          "threshold": 1,
+          "windowSize": "PT5M"
+        },
+        "actions": [
+          
+          {
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+            "customEmails": "[parameters('alertEmailAddresses')]"
+          }
+        ]
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/',variables('sServicePlanName'), '-LongHttpQueue')]"
+      ]
+    },
+
+    /*Site (s) level*/
+
+    {
+      "name": "[concat(variables('sAppInsightsName'), '-ServerErrors')]",
+      "type": "Microsoft.Insights/alertrules",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('sAppInsightsApiVersion')]",
+
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Web/sites/', variables('sSiteName')))]": "Resource",
+        "displayName": "Alert - Server Errors (s)"
+      },
+      "properties": {
+        "name": "[concat(variables('sAppInsightsName'), '-ServerErrors')]",
+        "description": "[concat(variables('sSiteName'), ' has some server errors, status code 5xx.')]",
+        "isEnabled": true,
+        "condition": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+          "dataSource": {
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[resourceId('Microsoft.Web/sites/', variables('sSiteName'))]",
+            "metricName": "Http5xx"
+          },
+          "operator": "GreaterThan",
+          "threshold": 0,
+          "windowSize": "PT5M"
+        },
+        "action": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        }
+        
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/',variables('sSiteName'), '-ServerExceptions')]"
+
+      ]
+    },
+    {
+      "name": "[concat(variables('sAppInsightsName'), '-ForbiddenRequests')]",
+      "type": "Microsoft.Insights/alertrules",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('sAppInsightsApiVersion')]",
+
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Web/sites/', variables('sSiteName')))]": "Resource",
+        "displayName": "Alert - Forbidden Requests (s)"
+      },
+      "properties": {
+        "name": "[concat(variables('sAppInsightsName'),'-ForbiddenRequests')]",
+        "description": "[concat(variables('sSiteName'), ' has some requests that are forbidden, status code 403.')]",
+        "isEnabled": true,
+
+        "condition": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+          "dataSource": {
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[resourceId('Microsoft.Web/sites/', variables('sSiteName'))]",
+            "metricName": "Http403"
+          },
+          "operator": "GreaterThan",
+          "threshold": 5,
+          "windowSize": "PT5M"
+        },
+        "action": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        }
+        
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/',variables('sAppInsightsName'), '-ServerErrors')]"
+
+      ]
+    },
+    /*Database (s) Level*/
+    {
+      "name": "[concat(variables('sServicePlanName'), '-HighDTU')]",
+      "type": "Microsoft.Insights/alertRules",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('sAppInsightsApiVersion')]",
+
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Sql/servers/', variables('sqlServerName')),'/databases/Subscriptions')]": "Resource",
+        "displayName": "Alert - DTU Usage Exceeded (Subscriptions)"
+      },
+
+      "properties": {
+        "name": "[concat(variables('sServicePlanName'), '-HighDTU')]",
+        "description": "[concat(variables('sServicePlanName'), '-DTU is high for DB instances')]",
+        "isEnabled": true,
+
+        "condition": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+          "dataSource": {
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[concat(resourceId('Microsoft.Sql/servers/', variables('sqlServerName')),'/databases/Subscriptions')]",
+            "metricName": "dtu_consumption_percent"
+          },
+          "threshold": 90,
+          "windowSize": "PT5M",
+          "timeAggregation": "Average"
+        },
+        "action": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        },
+        "actions": [
+          {
+            "$type": "Microsoft.WindowsAzure.Management.Monitoring.Alerts.Models.RuleWebhookAction, Microsoft.WindowsAzure.Management.Mon.Client",
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleWebhookAction",
+            "serviceUri": "[variables('webhookURI')]",
+            "properties": {
+              "$type": "Microsoft.WindowsAzure.Management.Common.Storage.CasePreservedDictionary`1[[System.String, mscorlib]], Microsoft.WindowsAzure.Management.Common.Storage"
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/',variables('sAppInsightsName'), '-ForbiddenRequests')]"
+      ]
+    },
+    {
+      "name": "[concat(variables('sServicePlanName'),'-Database Connection Failure')]",
+      "type": "Microsoft.Insights/alertRules",
+
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('sAppInsightsApiVersion')]",
+
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Sql/servers/', variables('sqlServerName')),'/databases/Subscriptions')]": "Resource",
+        "displayName": "Alert - Database Connection Failure (Subscriptions)"
+      },
+
+      "properties": {
+        "name": "[concat( variables('sServicePlanName'), '-Database Connection Failure')]",
+        "description": "[concat(variables('sServicePlanName'), '-Failed Database Connection')]",
+        "isEnabled": true,
+
+        "condition": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+
+          "dataSource": {
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[concat(resourceId('Microsoft.Sql/servers/', variables('sqlServerName')),'/databases/Subscriptions')]",
+            "metricName": "connection_failed"
+          },
+
+          "threshold": 1,
+          "windowSize": "PT5M",
+          "timeAggregation": "Total"
+        },
+
+        "action": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        },
+        "actions": [
+          {
+            "$type": "Microsoft.WindowsAzure.Management.Monitoring.Alerts.Models.RuleWebhookAction, Microsoft.WindowsAzure.Management.Mon.Client",
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleWebhookAction",
+            "serviceUri": "[variables('webhookURI')]",
+            "properties": {
+              "$type": "Microsoft.WindowsAzure.Management.Common.Storage.CasePreservedDictionary`1[[System.String, mscorlib]], Microsoft.WindowsAzure.Management.Common.Storage"
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/',variables('sServicePlanName'), '-HighDTU')]"
+
+      ]
+    },
+    {
+      "name": "[concat(variables('sServicePlanName'), '-Database Size')]",
+      "type": "Microsoft.Insights/alertRules",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('sAppInsightsApiVersion')]",
+
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Sql/servers/', variables('sqlServerName')),'/databases/Subscriptions')]": "Resource",
+        "displayName": "Alert - Database Size Limit (Subscriptions)"
+      },
+      "properties": {
+        "name": "[concat(variables('sServicePlanName'), '-Database Size')]",
+        "description": "[concat(variables('sServicePlanName'), '-Database Size Usage Limit')]",
+        "isEnabled": true,
+        "condition": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+
+          "dataSource": {
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[concat(resourceId('Microsoft.Sql/servers/', variables('sqlServerName')),'/databases/Subscriptions')]",
+            "metricName": "storage_percent"
+          },
+
+          "threshold": 90,
+          "windowSize": "PT5M",
+          "timeAggregation": "Maximum"
+        },
+        "action": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        },
+        "actions": [
+          {
+            "$type": "Microsoft.WindowsAzure.Management.Monitoring.Alerts.Models.RuleWebhookAction, Microsoft.WindowsAzure.Management.Mon.Client",
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleWebhookAction",
+            "serviceUri": "[variables('webhookURI')]",
+            "properties": {
+              "$type": "Microsoft.WindowsAzure.Management.Common.Storage.CasePreservedDictionary`1[[System.String, mscorlib]], Microsoft.WindowsAzure.Management.Common.Storage"
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/',variables('sServicePlanName'), '-Database Connection Failure')]"
+
+      ]
+    },
+
+    /*s Web Test (Availibility) & Alert*/
+    {
+      "name": "[variables('sWebTestName')]",
+      "type": "Microsoft.Insights/webtests",
+      "location": "South Central US",
+      "apiVersion": "[variables('sAppInsightsApiVersion')]",
+
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.insights/components/', variables('sAppInsightsName')))]": "Resource",
+        "displayName": "Web Test - Ping URL (s)"
+      },
+      "properties": {
+        "provisioningState": "Succeeded",
+        "name": "[variables('sWebTestName')]",
+        "Description": "Check Dd(s) Availability",
+        "Enabled": true,
+        "Frequency": 300,
+        "Timeout": 120,
+        "Kind": "ping",
+        "RetryEnabled": true,
+        "Locations": [
+          {
+            "Id": "us-ca-sjc-azr"
+          },
+          {
+            "Id": "us-tx-sn1-azr"
+          },
+          {
+            "Id": "us-fl-mia-edge"
+          }
+        ],
+        "Configuration": {
+          "WebTest": "[concat('        <WebTest         Name=\"', variables('sWebTestName'), '\"         Enabled=\"True\"         CssProjectStructure=\"\"         CssIteration=\"\"         Timeout=\"120\"         WorkItemIds=\"\"         xmlns=\"http://microsoft.com/schemas/VisualStudio/TeamTest/2010\"         Description=\"\"         CredentialUserName=\"\"         CredentialPassword=\"\"         PreAuthenticate=\"True\"         Proxy=\"default\"         StopOnError=\"False\"         RecordedResultFile=\"\"         ResultsLocale=\"\">        <Items>        <Request         Method=\"GET\"         Version=\"1.1\"         Url=\"https://', parameters('sHostName'), '/\"         ThinkTime=\"0\"         Timeout=\"120\"         ParseDependentRequests=\"False\"         FollowRedirects=\"True\"         RecordResult=\"True\"         Cache=\"False\"         ResponseTimeGoal=\"0\"         Encoding=\"utf-8\"         ExpectedHttpStatusCode=\"200\"         ExpectedResponseUrl=\"\"         ReportingName=\"\"         IgnoreHttpStatusCode=\"False\" />        </Items>        </WebTest>')]"
+        },
+        "SyntheticMonitorId": "[variables('sWebTestName')]"
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/',variables('sServicePlanName'), '-Database Size')]"
+      ]
+    },
+
+    {
+      "name": "[variables('sWebTestAvailabilityAlert')]",
+      "type": "Microsoft.Insights/alertRules",
+      "location": "South Central US",
+      "apiVersion": "[variables('sAppInsightsApiVersion')]",
+      "dependsOn": [
+        "[concat('Microsoft.Insights/webtests/', variables('sWebTestName'))]"
+      ],
+
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Insights/components/', variables('sAppInsightsName')))]": "Resource",
+        "[concat('hidden-link:', resourceId('Microsoft.Insights/webtests/', variables('sWebTestName')))]": "Resource",
+
+        "displayName": "Alert - Web App Unavailability (s)"
+      },
+
+      "properties": {
+        "name": "[variables('sWebTestAvailabilityAlert')]",
+        "description": "s Web URL is Unavailability",
+        "isEnabled": true,
+        "condition": {
+
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.LocationThresholdRuleCondition",
+          "dataSource": {
+
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[resourceId('Microsoft.Insights/webtests/', variables('sWebTestName'))]",
+            "metricName": "GSMT_AvRaW"
+          },
+          "windowSize": "PT5M",
+          "failedLocationCount": 2
+        },
+        "action": {
+
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        },
+
+        "provisioningState": "Succeeded",
+        "actions": [
+          {
+            "$type": "Microsoft.WindowsAzure.Management.Monitoring.Alerts.Models.RuleWebhookAction, Microsoft.WindowsAzure.Management.Mon.Client",
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleWebhookAction",
+            "serviceUri": "[variables('webhookURI')]",
+            "properties": {
+              "$type": "Microsoft.WindowsAzure.Management.Common.Storage.CasePreservedDictionary`1[[System.String, mscorlib]], Microsoft.WindowsAzure.Management.Common.Storage"
+            }
+          }
+        ]
+      }
+    },
+
+    {
+      "name": "[concat(variables('sSiteName'), '-SlowResponse-USW')]",
+      "type": "Microsoft.Insights/alertRules",
+      "location": "South Central US",
+      "apiVersion": "[variables('sAppInsightsApiVersion')]",
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/', variables('sWebTestAvailabilityAlert'))]"
+      ],
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Insights/components/', variables('sAppInsightsName')))]": "Resource",
+        "[concat('hidden-link:', resourceId('Microsoft.Insights/webtests/', variables('sWebTestName')))]": "Resource",
+
+        "displayName": "Alert - Slow Response for USW Region (s)"
+
+      },
+      "properties": {
+        "name": "[concat(variables('sSiteName'), '-SlowResponse-USW')]",
+        "description": "Excessive response time for s web app for US-Ca Region",
+        "isEnabled": true,
+        "condition": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+          "dataSource": {
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[resourceId('microsoft.insights/webtests', variables('sWebTestName'))]",
+            "metricName": "locations/us-ca-sjc-azr/metrics/GSMT_RtRaw"
+          },
+          "threshold": "[parameters('availabilityThreshold')]",
+          "windowSize": "PT15M"
+        },
+        "action": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        },
+        "provisioningState": "Succeeded",
+        "actions": [
+          {
+            "$type": "Microsoft.WindowsAzure.Management.Monitoring.Alerts.Models.RuleWebhookAction, Microsoft.WindowsAzure.Management.Mon.Client",
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleWebhookAction",
+            "serviceUri": "[variables('webhookURI')]",
+            "properties": {
+              "$type": "Microsoft.WindowsAzure.Management.Common.Storage.CasePreservedDictionary`1[[System.String, mscorlib]], Microsoft.WindowsAzure.Management.Common.Storage"
+            }
+          }
+        ]
+      }
+    },
+
+    {
+      "name": "[concat(variables('sSiteName'), '-SlowResponse-USC')]",
+      "type": "Microsoft.Insights/alertRules",
+      "location": "South Central US",
+      "apiVersion": "[variables('sAppInsightsApiVersion')]",
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/',variables('sSiteName'), '-SlowResponse-USW')]"
+
+      ],
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Insights/components/', variables('sAppInsightsName')))]": "Resource",
+        "[concat('hidden-link:', resourceId('Microsoft.Insights/webtests/', variables('sWebTestName')))]": "Resource",
+
+        "displayName": "Alert - Slow Response for USC Region (s)"
+      },
+      "properties": {
+        "name": "[concat(variables('sSiteName'), '-SlowResponse-USC')]",
+        "description": "Excessive response time for s web app for US-FL Region",
+        "isEnabled": true,
+        "condition": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+          "dataSource": {
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[resourceId('microsoft.insights/webtests', variables('sWebTestName'))]",
+            "metricName": "locations/us-fl-mia-edge/metrics/GSMT_RtRaw"
+          },
+          "threshold": "[parameters('availabilityThreshold')]",
+          "windowSize": "PT15M"
+        },
+        "action": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        },
+        "provisioningState": "Succeeded",
+        "actions": [
+          {
+            "$type": "Microsoft.WindowsAzure.Management.Monitoring.Alerts.Models.RuleWebhookAction, Microsoft.WindowsAzure.Management.Mon.Client",
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleWebhookAction",
+            "serviceUri": "[variables('webhookURI')]",
+            "properties": {
+              "$type": "Microsoft.WindowsAzure.Management.Common.Storage.CasePreservedDictionary`1[[System.String, mscorlib]], Microsoft.WindowsAzure.Management.Common.Storage"
+            }
+          }
+        ]
+      }
+    },
+
+    {
+      "name": "[concat(variables('sSiteName'), '-SlowResponse-USSC')]",
+      "type": "Microsoft.Insights/alertRules",
+      "location": "South Central US",
+      "apiVersion": "[variables('sAppInsightsApiVersion')]",
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/',variables('sSiteName'), '-SlowResponse-USC')]"
+
+      ],
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Insights/components/', variables('sAppInsightsName')))]": "Resource",
+        "[concat('hidden-link:', resourceId('Microsoft.Insights/webtests/', variables('sWebTestName')))]": "Resource",
+
+        "displayName": "Alert - Slow Response for USSC Region (s)"
+      },
+      "properties": {
+        "name": "[concat(variables('sSiteName'), '-SlowResponse-USSC')]",
+        "description": "Excessive response time for s web app for US-TX Region",
+        "isEnabled": true,
+        "condition": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+          "dataSource": {
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[resourceId('microsoft.insights/webtests', variables('sWebTestName'))]",
+            "metricName": "locations/us-tx-sn1-azr/metrics/GSMT_RtRaw"
+          },
+          "threshold": "[parameters('availabilityThreshold')]",
+          "windowSize": "PT15M"
+        },
+        "action": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        },
+        "provisioningState": "Succeeded",
+        "actions": [
+          {
+            "$type": "Microsoft.WindowsAzure.Management.Monitoring.Alerts.Models.RuleWebhookAction, Microsoft.WindowsAzure.Management.Mon.Client",
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleWebhookAction",
+            "serviceUri": "[variables('webhookURI')]",
+            "properties": {
+              "$type": "Microsoft.WindowsAzure.Management.Common.Storage.CasePreservedDictionary`1[[System.String, mscorlib]], Microsoft.WindowsAzure.Management.Common.Storage"
+            }
+          }
+        ]
+      }
+    },
+
+    /*d Monitors*/
+
+    /* Farm Level*/
+    {
+      "name": "[concat(variables('dServicePlanName'), '-HighCPU')]",
+      "type": "Microsoft.Insights/alertrules",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('dAppInsightsApiVersion')]",
+
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Web/serverFarms/', variables('dServicePlanName')))]": "Resource",
+        "displayName": "Alert - High CPU (d)"
+      },
+
+      "properties": {
+        "name": "[concat(variables('dServicePlanName'), '-HighCPU')]",
+        "description": "[concat(variables('dServicePlanName'),'-High CPU Utilization')]",
+        "isEnabled": true,
+        "condition": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+          "dataSource": {
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[resourceId('Microsoft.Web/serverfarms', variables('dServicePlanName'))]",
+            "metricName": "CpuPercentage"
+          },
+          "operator": "GreaterThan",
+          "threshold": 90,
+          "windowSize": "PT15M"
+        },
+        "action": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        },
+        "actions": [
+          {
+            "$type": "Microsoft.WindowsAzure.Management.Monitoring.Alerts.Models.RuleWebhookAction, Microsoft.WindowsAzure.Management.Mon.Client",
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleWebhookAction",
+            "serviceUri": "[variables('webhookURI')]",
+            "properties": {
+              "$type": "Microsoft.WindowsAzure.Management.Common.Storage.CasePreservedDictionary`1[[System.String, mscorlib]], Microsoft.WindowsAzure.Management.Common.Storage"
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/',variables('sSiteName'), '-SlowResponse-USSC')]"
+      ]
+    },
+    {
+      "name": "[concat(variables('dServicePlanName'), '-HighMemory')]",
+      "type": "Microsoft.Insights/alertRules",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('dAppInsightsApiVersion')]",
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Web/serverFarms/', variables('dServicePlanName')))]": "Resource",
+        "displayName": "Alert - Memory Usage (d)"
+      },
+      "properties": {
+        "name": "[concat(variables('dServicePlanName'), '-HighMemory')]",
+        "description": "[concat(variables('dServicePlanName'), '-High Memory Utilization')]",
+        "isEnabled": true,
+        "condition": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+          "dataSource": {
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[resourceId('Microsoft.Web/serverfarms', variables('dServicePlanName'))]",
+            "metricName": "MemoryPercentage"
+          },
+          "threshold": 90,
+          "windowSize": "PT5M",
+          "timeAggregation": "Average"
+        },
+        "action": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        },
+        "provisioningState": "Succeeded",
+        "actions": [
+          {
+            "$type": "Microsoft.WindowsAzure.Management.Monitoring.Alerts.Models.RuleWebhookAction, Microsoft.WindowsAzure.Management.Mon.Client",
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleWebhookAction",
+            "serviceUri": "[variables('webhookURI')]",
+            "properties": {
+              "$type": "Microsoft.WindowsAzure.Management.Common.Storage.CasePreservedDictionary`1[[System.String, mscorlib]], Microsoft.WindowsAzure.Management.Common.Storage"
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/',variables('dServicePlanName'), '-HighCPU')]"
+
+      ]
+    },
+    {
+      "name": "[concat(variables('dServicePlanName'),'-LongHttpQueue')]",
+      "type": "Microsoft.Insights/alertrules",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('dAppInsightsApiVersion')]",
+
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Web/serverFarms/', variables('sServicePlanName')))]": "Resource",
+        "displayName": "Alert - Long HTTP Queue (d)"
+      },
+      "properties": {
+        "name": "[concat(variables('dServicePlanName'), '-LongHttpQueue')]",
+
+        "description": "[concat('The HTTP queue for the instances of ', variables('dServicePlanName'), ' has a large number of pending requests.')]",
+        "isEnabled": true,
+
+        "condition": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+          "dataSource": {
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[resourceId('Microsoft.Web/serverfarms', variables('dServicePlanName'))]",
+            "metricName": "HttpQueueLength"
+          },
+          "operator": "GreaterThan",
+          "threshold": 100,
+          "windowSize": "PT5M"
+        },
+        "action": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        }
+        
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/',variables('dServicePlanName'), '-HighMemory')]"
+      ]
+    },
+    {
+      "type": "microsoft.insights/alertrules",
+      "name": "[concat(variables('dSiteName'), '-ServerExceptions')]",
+      "apiVersion": "[variables('dAppInsightsApiVersion')]",
+      "location": "South Central US",
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Insights/components/', variables('dAppInsightsName')))]": "Resource"
+      },
+      "properties": {
+        "name": "[concat(variables('dSiteName'), '-ServerExceptions')]",
+        "description": "[concat(variables('dSiteName'), '-Server Exceptions')]",
+        "isEnabled": true,
+        "condition": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+          "dataSource": {
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[resourceId('microsoft.insights/components', variables('dAppInsightsName'))]",
+            "metricName": "basicExceptionServer.count"
+          },
+          "operator": "GreaterThanOrEqual",
+          "threshold": 1,
+          "windowSize": "PT5M"
+        },
+        "actions": [
+          {
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+            "customEmails": "[parameters('alertEmailAddresses')]"
+          }
+        ]
+      },
+
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/',variables('dServicePlanName'), '-LongHttpQueue')]"
+      ]
+    },
+
+    /*Site (d) Level*/
+
+    {
+      "name": "[concat(variables('dAppInsightsName'), '-ServerErrors')]",
+      "type": "Microsoft.Insights/alertrules",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('dAppInsightsApiVersion')]",
+
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Web/sites/', variables('dSiteName')))]": "Resource",
+        "displayName": "Alert - Server Errors (d)"
+      },
+      "properties": {
+        "name": "[concat(variables('dAppInsightsName'), '-ServerErrors')]",
+        "description": "[concat(variables('dSiteName'), '-Has some server errors, status code 5xx.')]",
+        "isEnabled": true,
+        "condition": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+          "dataSource": {
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[resourceId('Microsoft.Web/sites/', variables('dSiteName'))]",
+            "metricName": "Http5xx"
+          },
+          "operator": "GreaterThan",
+          "threshold": 0,
+          "windowSize": "PT5M"
+        },
+        "action": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        }
+        
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/',variables('dSiteName'), '-ServerExceptions')]"
+      ]
+    },
+    {
+      "name": "[concat(variables('dAppInsightsName'), '-ForbiddenRequests')]",
+      "type": "Microsoft.Insights/alertrules",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('dAppInsightsApiVersion')]",
+
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Web/sites/', variables('dSiteName')))]": "Resource",
+        "displayName": "Alert - Forbidden Requests (d)"
+      },
+      "properties": {
+        "name": "[concat(variables('dAppInsightsName'), '-ForbiddenRequests')]",
+        "description": "[concat(variables('dSiteName'), '-Has some requests that are forbidden, status code 403.')]",
+        "isEnabled": true,
+
+        "condition": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+          "dataSource": {
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[resourceId('Microsoft.Web/sites/', variables('dSiteName'))]",
+            "metricName": "Http403"
+          },
+          "operator": "GreaterThan",
+          "threshold": 5,
+          "windowSize": "PT5M"
+        },
+        "action": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        }
+        
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/',variables('dAppInsightsName'), '-ServerErrors')]"
+      ]
+    },
+
+    /* Database (d) Level*/
+
+    {
+      "name": "[concat(variables('dServicePlanName'), '-HighDTU')]",
+      "type": "Microsoft.Insights/alertRules",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('dAppInsightsApiVersion')]",
+
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Sql/servers/', variables('sqlServerName')),'/databases/ds')]": "Resource",
+        "displayName": "Alert - DTU Usage Exceeded (ds)"
+      },
+
+      "properties": {
+        "name": "[concat(variables('dServicePlanName'), '-HighDTU')]",
+        "description": "[concat(variables('dServicePlanName'), '-DTU is high for DB instances')]",
+
+        "isEnabled": true,
+        "condition": {
+          "$type": "Microsoft.WindowsAzure.Management.Monitoring.Alerts.Models.ThresholdRuleCondition, Microsoft.WindowsAzure.Management.Mon.Client",
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+
+          "dataSource": {
+            "$type": "Microsoft.WindowsAzure.Management.Monitoring.Alerts.Models.RuleMetricDataSource, Microsoft.WindowsAzure.Management.Mon.Client",
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+
+            "resourceUri": "[concat(resourceId('Microsoft.Sql/servers/', variables('sqlServerName')),'/databases/ds')]",
+            "metricName": "dtu_consumption_percent"
+          },
+          "threshold": 90,
+          "windowSize": "PT5M",
+          "timeAggregation": "Average"
+        },
+        "action": {
+          "$type": "Microsoft.WindowsAzure.Management.Monitoring.Alerts.Models.RuleEmailAction, Microsoft.WindowsAzure.Management.Mon.Client",
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        },
+        "actions": [
+          {
+            "$type": "Microsoft.WindowsAzure.Management.Monitoring.Alerts.Models.RuleWebhookAction, Microsoft.WindowsAzure.Management.Mon.Client",
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleWebhookAction",
+            "serviceUri": "[variables('webhookURI')]",
+            "properties": {
+              "$type": "Microsoft.WindowsAzure.Management.Common.Storage.CasePreservedDictionary`1[[System.String, mscorlib]], Microsoft.WindowsAzure.Management.Common.Storage"
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/',variables('dAppInsightsName'), '-ForbiddenRequests')]"
+      ]
+    },
+    {
+      "name": "[concat(variables('dServicePlanName'), '-Database Connection Failure')]",
+      "type": "Microsoft.Insights/alertRules",
+
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('dAppInsightsApiVersion')]",
+
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Sql/servers/', variables('sqlServerName')),'/databases/ds')]": "Resource",
+        "displayName": "Alert - Database Connection Failure (ds)"
+      },
+
+      "properties": {
+        "name": "[concat(variables('dServicePlanName'), '-Database Connection Failure')]",
+        "description": "[concat(variables('dServicePlanName'), '-Failed Database Connection')]",
+        "isEnabled": true,
+
+        "condition": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+          "dataSource": {
+
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[concat(resourceId('Microsoft.Sql/servers/', variables('sqlServerName')),'/databases/ds')]",
+            "metricName": "connection_failed"
+          },
+
+          "threshold": 1,
+          "windowSize": "PT5M",
+          "timeAggregation": "Total"
+        },
+
+        "action": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        },
+        "actions": [
+          {
+            "$type": "Microsoft.WindowsAzure.Management.Monitoring.Alerts.Models.RuleWebhookAction, Microsoft.WindowsAzure.Management.Mon.Client",
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleWebhookAction",
+            "serviceUri": "[variables('webhookURI')]",
+            "properties": {
+              "$type": "Microsoft.WindowsAzure.Management.Common.Storage.CasePreservedDictionary`1[[System.String, mscorlib]], Microsoft.WindowsAzure.Management.Common.Storage"
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/',variables('dServicePlanName'), '-HighDTU')]"
+      ]
+    },
+    {
+      "name": "[concat(variables('dServicePlanName'), '-Database Size')]",
+      "type": "Microsoft.Insights/alertRules",
+
+      "location": "[resourceGroup().location]",
+      "apiVersion": "[variables('dAppInsightsApiVersion')]",
+
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Sql/servers/', variables('sqlServerName')),'/databases/ds')]": "Resource",
+        "displayName": "Alert - Database Size Limit (ds)"
+      },
+      "properties": {
+        "name": "[concat(variables('dServicePlanName'), '-Database Size')]",
+        "description": "[concat(variables('dServicePlanName'), '-Database Size Limit')]",
+        "isEnabled": true,
+        "condition": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+          "dataSource": {
+            "$type": "Microsoft.WindowsAzure.Management.Monitoring.Alerts.Models.RuleMetricDataSource, Microsoft.WindowsAzure.Management.Mon.Client",
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[concat(resourceId('Microsoft.Sql/servers/', variables('sqlServerName')),'/databases/ds')]",
+            "metricName": "storage_percent"
+          },
+
+          "threshold": 90,
+          "windowSize": "PT5M",
+          "timeAggregation": "Maximum"
+        },
+        "action": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        },
+        "actions": [
+          {
+            "$type": "Microsoft.WindowsAzure.Management.Monitoring.Alerts.Models.RuleWebhookAction, Microsoft.WindowsAzure.Management.Mon.Client",
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleWebhookAction",
+            "serviceUri": "[variables('webhookURI')]",
+            "properties": {
+              "$type": "Microsoft.WindowsAzure.Management.Common.Storage.CasePreservedDictionary`1[[System.String, mscorlib]], Microsoft.WindowsAzure.Management.Common.Storage"
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/',variables('dServicePlanName'), '-Database Connection Failure')]"
+      ]
+    },
+    /*d Web Test (Availibility) & Alert*/
+    {
+      "name": "[variables('dWebTestName')]",
+      "type": "Microsoft.Insights/webtests",
+      "location": "South Central US",
+      "apiVersion": "[variables('dAppInsightsApiVersion')]",
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/',variables('sSiteName'), '-SlowResponse-USSC')]"
+      ],
+
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.insights/components/', variables('dAppInsightsName')))]": "Resource",
+        "displayName": "Web Test - Ping URL (d)"
+      },
+      "properties": {
+        "provisioningState": "Succeeded",
+        "name": "[variables('dWebTestName')]",
+        "Description": "Check Dd(d) Availability",
+        "Enabled": true,
+        "Frequency": 300,
+        "Timeout": 120,
+        "Kind": "ping",
+        "RetryEnabled": true,
+        "Locations": [
+          {
+            "Id": "us-ca-sjc-azr"
+          },
+          {
+            "Id": "us-tx-sn1-azr"
+          },
+          {
+            "Id": "us-fl-mia-edge"
+          }
+        ],
+        "Configuration": {
+          "WebTest": "[concat('        <WebTest         Name=\"', variables('dWebTestName'), '\"         Enabled=\"True\"         CssProjectStructure=\"\"         CssIteration=\"\"         Timeout=\"120\"         WorkItemIds=\"\"         xmlns=\"http://microsoft.com/schemas/VisualStudio/TeamTest/2010\"         Description=\"\"         CredentialUserName=\"\"         CredentialPassword=\"\"         PreAuthenticate=\"True\"         Proxy=\"default\"         StopOnError=\"False\"         RecordedResultFile=\"\"         ResultsLocale=\"\">        <Items>        <Request         Method=\"GET\"         Version=\"1.1\"         Url=\"https://', parameters('dHostName'), '/\"         ThinkTime=\"0\"         Timeout=\"120\"         ParseDependentRequests=\"False\"         FollowRedirects=\"True\"         RecordResult=\"True\"         Cache=\"False\"         ResponseTimeGoal=\"0\"         Encoding=\"utf-8\"         ExpectedHttpStatusCode=\"200\"         ExpectedResponseUrl=\"\"         ReportingName=\"\"         IgnoreHttpStatusCode=\"False\" />        </Items>        </WebTest>')]"
+        },
+        "SyntheticMonitorId": "[variables('dWebTestName')]"
+      }
+    },
+
+    {
+      "name": "[variables('dWebTestAvailabilityAlert')]",
+      "type": "Microsoft.Insights/alertRules",
+      "location": "South Central US",
+      "apiVersion": "[variables('dAppInsightsApiVersion')]",
+      "dependsOn": [
+        "[concat('Microsoft.Insights/webtests/', variables('dWebTestName'))]"
+      ],
+
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Insights/components/', variables('dAppInsightsName')))]": "Resource",
+        "[concat('hidden-link:', resourceId('Microsoft.Insights/webtests/', variables('dWebTestName')))]": "Resource",
+
+        "displayName": "Alert - Web App Unavailability (d)"
+      },
+
+      "properties": {
+        "name": "[variables('dWebTestAvailabilityAlert')]",
+        "description": "d Web URL is Unavailability",
+        "isEnabled": true,
+        "condition": {
+
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.LocationThresholdRuleCondition",
+          "dataSource": {
+
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[resourceId('Microsoft.Insights/webtests/', variables('dWebTestName'))]",
+            "metricName": "GSMT_AvRaW"
+          },
+          "windowSize": "PT5M",
+          "failedLocationCount": 2
+        },
+        "action": {
+
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        },
+        "provisioningState": "Succeeded",
+        "actions": [
+          {
+            "$type": "Microsoft.WindowsAzure.Management.Monitoring.Alerts.Models.RuleWebhookAction, Microsoft.WindowsAzure.Management.Mon.Client",
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleWebhookAction",
+            "serviceUri": "[variables('webhookURI')]",
+            "properties": {
+              "$type": "Microsoft.WindowsAzure.Management.Common.Storage.CasePreservedDictionary`1[[System.String, mscorlib]], Microsoft.WindowsAzure.Management.Common.Storage"
+            }
+          }
+        ]
+      }
+    },
+
+    {
+      "name": "[concat(variables('dSiteName'), '-SlowResponse-USW')]",
+      "type": "Microsoft.Insights/alertRules",
+      "location": "South Central US",
+      "apiVersion": "[variables('dAppInsightsApiVersion')]",
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/', variables('dWebTestAvailabilityAlert'))]"
+      ],
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Insights/components/', variables('dAppInsightsName')))]": "Resource",
+        "[concat('hidden-link:', resourceId('Microsoft.Insights/webtests/', variables('dWebTestName')))]": "Resource",
+
+        "displayName": "Alert - Slow Response for USW Region (d)"
+
+      },
+      "properties": {
+        "name": "[concat(variables('dSiteName'), '-SlowResponse-USW')]",
+        "description": "Excessive response time for d web app for US-Ca Region",
+        "isEnabled": true,
+        "condition": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+          "dataSource": {
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[resourceId('microsoft.insights/webtests', variables('dWebTestName'))]",
+            "metricName": "locations/us-ca-sjc-azr/metrics/GSMT_RtRaw"
+          },
+          "threshold": "[parameters('availabilityThreshold')]",
+          "windowSize": "PT15M"
+        },
+        "action": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        },
+        "provisioningState": "Succeeded",
+        "actions": [
+          {
+            "$type": "Microsoft.WindowsAzure.Management.Monitoring.Alerts.Models.RuleWebhookAction, Microsoft.WindowsAzure.Management.Mon.Client",
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleWebhookAction",
+            "serviceUri": "[variables('webhookURI')]",
+            "properties": {
+              "$type": "Microsoft.WindowsAzure.Management.Common.Storage.CasePreservedDictionary`1[[System.String, mscorlib]], Microsoft.WindowsAzure.Management.Common.Storage"
+            }
+          }
+        ]
+      }
+    },
+
+    {
+      "name": "[concat(variables('dSiteName'), '-SlowResponse-USC')]",
+      "type": "Microsoft.Insights/alertRules",
+      "location": "South Central US",
+      "apiVersion": "[variables('dAppInsightsApiVersion')]",
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/',variables('dSiteName'), '-SlowResponse-USW')]"
+      ],
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Insights/components/', variables('dAppInsightsName')))]": "Resource",
+        "[concat('hidden-link:', resourceId('Microsoft.Insights/webtests/', variables('dWebTestName')))]": "Resource",
+
+        "displayName": "Alert - Slow Response for Central US Region (d)"
+      },
+      "properties": {
+        "name": "[concat(variables('dSiteName'), '-SlowResponse-USC')]",
+        "description": "Excessive response time for d web app for US-FL Region",
+        "isEnabled": true,
+        "condition": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+          "dataSource": {
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[resourceId('microsoft.insights/webtests', variables('dWebTestName'))]",
+            "metricName": "locations/us-fl-mia-edge/metrics/GSMT_RtRaw"
+          },
+          "threshold": "[parameters('availabilityThreshold')]",
+          "windowSize": "PT15M"
+        },
+        "action": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        },
+        "provisioningState": "Succeeded",
+        "actions": [
+          {
+            "$type": "Microsoft.WindowsAzure.Management.Monitoring.Alerts.Models.RuleWebhookAction, Microsoft.WindowsAzure.Management.Mon.Client",
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleWebhookAction",
+            "serviceUri": "[variables('webhookURI')]",
+            "properties": {
+              "$type": "Microsoft.WindowsAzure.Management.Common.Storage.CasePreservedDictionary`1[[System.String, mscorlib]], Microsoft.WindowsAzure.Management.Common.Storage"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "[concat(variables('dSiteName'), '-SlowResponse-USSC')]",
+      "type": "Microsoft.Insights/alertRules",
+      "location": "South Central US",
+      "apiVersion": "[variables('dAppInsightsApiVersion')]",
+      "dependsOn": [
+        "[concat('Microsoft.Insights/alertrules/',variables('dSiteName'), '-SlowResponse-USC')]"
+      ],
+      "tags": {
+        "[concat('hidden-link:', resourceId('Microsoft.Insights/components/', variables('dAppInsightsName')))]": "Resource",
+        "[concat('hidden-link:', resourceId('Microsoft.Insights/webtests/', variables('dWebTestName')))]": "Resource",
+
+        "displayName": "Alert - Slow Response for USSC Region (d)"
+      },
+      "properties": {
+        "name": "[concat(variables('dSiteName'), '-SlowResponse-USSC)')]",
+        "description": "Excessive response time for d web app for US-TX Region",
+        "isEnabled": true,
+        "condition": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.ThresholdRuleCondition",
+          "dataSource": {
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleMetricDataSource",
+            "resourceUri": "[resourceId('microsoft.insights/webtests', variables('dWebTestName'))]",
+            "metricName": "locations/us-tx-sn1-azr/metrics/GSMT_RtRaw"
+          },
+          "threshold": "[parameters('availabilityThreshold')]",
+          "windowSize": "PT15M"
+        },
+        "action": {
+          "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleEmailAction",
+          "sendToServiceOwners": false,
+          "customEmails": "[parameters('alertEmailAddresses')]"
+        },
+        "provisioningState": "Succeeded",
+        "actions": [
+          {
+            "$type": "Microsoft.WindowsAzure.Management.Monitoring.Alerts.Models.RuleWebhookAction, Microsoft.WindowsAzure.Management.Mon.Client",
+            "odata.type": "Microsoft.Azure.Management.Insights.Models.RuleWebhookAction",
+            "serviceUri": "[variables('webhookURI')]",
+            "properties": {
+              "$type": "Microsoft.WindowsAzure.Management.Common.Storage.CasePreservedDictionary`1[[System.String, mscorlib]], Microsoft.WindowsAzure.Management.Common.Storage"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
